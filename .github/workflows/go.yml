@@ -1,0 +1,42 @@
+name: Go CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.24.5
+      
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/gp/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-key: |
+            ${{ runner.os }}-go-
+
+      - name: Install dependencies
+        run: go mod download
+
+      - name: Build
+        run: go build ./...
+
+      - name: Run tests
+        run: go test -v ./...
+
+      - name: Vet code
+        run: go vet ./...

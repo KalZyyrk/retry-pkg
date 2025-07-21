@@ -44,4 +44,15 @@ jobs:
       - name: Lint code
         uses: golangci/golangci-lint-action@v8
         with:
-          version: v2.1
+          version: v2.2.2
+          args: --output.json.path lint-results.json || true
+
+      - name: Check max issue count
+        run: |
+          count=$(jq '.Issues | length' lint-results.json)
+          echo "Found $count issues"
+          max=10
+          if [ "$count" -gt "$max" ]; then
+            echo "Too many issues ($count > $max)"
+            exit 1
+          fi

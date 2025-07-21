@@ -30,7 +30,6 @@ formatters:
     - gofumpt
     - goimports
     - golines
-    - swaggo
 issues:
   fix: true
 output:

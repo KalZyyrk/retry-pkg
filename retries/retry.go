@@ -1,7 +1,21 @@
+// Package retries provides intelligent retry functionality with automatic error handling
+// for HTTP operations and other recoverable failures.
+//
+// This package offers a generic Retry function that can work with any return type,
+// implementing smart retry logic that distinguishes between recoverable and
+// unrecoverable errors. HTTP responses are handled intelligently:
+//   - 2xx: Success, no retry needed
+//   - 4xx: Client errors, marked as unrecoverable (no retry)
+//   - 5xx: Server errors, will retry up to the configured limit
+//
+// The package uses the github.com/avast/retry-go library under the hood and extends
+// it with HTTP-aware error handling and predefined error variables for common
+// HTTP status codes.
 package retries
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -13,6 +27,27 @@ import (
 // Note: This is a global variable, which means it's not thread-safe, but since
 // it's intended for testing scenarios, this is acceptable.
 var count int
+
+// HTTP error variables for common status codes.
+// These predefined errors provide consistent error messages
+// across the application when handling HTTP-related failures.
+var (
+	// ErrBadRequest represents a 400 Bad Request error.
+	// Used when the client sends a malformed or invalid request.
+	ErrBadRequest = errors.New("bad request - Status Code: 400")
+
+	// ErrForbidden represents a 403 Forbidden error.
+	// Used when the client lacks proper authorization to access the resource.
+	ErrForbidden = errors.New("forbidden - Status Code: 403")
+
+	// ErrNotFound represents a 404 Not Found error.
+	// Used when the requested resource cannot be found on the server.
+	ErrNotFound = errors.New("not found - Status Code: 404")
+
+	// ErrNotImplemented represents a 501 Not Implemented error.
+	// Used when the server does not support the functionality required to fulfill the request.
+	ErrNotImplemented = errors.New("not implemented - Status Code: 501")
+)
 
 // Retry executes a function with automatic retry logic and intelligent error handling.
 // It uses Go generics to work with any return type T.
@@ -32,18 +67,22 @@ var count int
 //   - T: The result from the successful function execution
 //   - error: Any error that occurred, or nil on success
 func Retry[T any](ctx context.Context, f func() (T, error), opts ...retry.Option) (T, error) {
-	var res T
-	var err error
+	var (
+		res T
+		err error
+	)
+
 	count = 0
 	err = retry.Do(
 		func() error {
 			res, err = f()
 			res, err = checkResAndErr(res, err)
+
 			return err
 		},
-		retry.Attempts(5),
 		retry.RetryIf(retryAction),
 	)
+
 	return res, err
 }
 
@@ -59,18 +98,26 @@ func Retry[T any](ctx context.Context, f func() (T, error), opts ...retry.Option
 //   - T: The response (potentially modified)
 //   - error: The error (potentially wrapped or modified)
 func checkResAndErr[T any](res T, err error) (T, error) {
-	switch r := any(res).(type) {
-	case *http.Response:
-		switch {
-		case r.StatusCode >= 500:
-			return res, err
-		case r.StatusCode >= 400:
-			err = fmt.Errorf("HTTP failed - %d, Bad Request", r.StatusCode)
-			return res, retry.Unrecoverable(err)
+	if err == nil {
+		switch r := any(res).(type) {
+		case *http.Response:
+			switch r.StatusCode {
+			case http.StatusNotImplemented:
+				return res, retry.Unrecoverable(fmt.Errorf("HTTP failed: %w", ErrNotImplemented))
+			case http.StatusBadRequest:
+				return res, retry.Unrecoverable(fmt.Errorf("HTTP failed: %w", ErrBadRequest))
+			case http.StatusForbidden:
+				return res, retry.Unrecoverable(fmt.Errorf("HTTP failed: %w", ErrForbidden))
+			case http.StatusNotFound:
+				return res, retry.Unrecoverable(fmt.Errorf("HTTP failed: %w", ErrNotFound))
+			default:
+				return res, err
+			}
+		default:
+			return res, nil
 		}
-	default:
-		return res, nil
 	}
+
 	return res, err
 }
 
@@ -95,6 +142,7 @@ func retryAction(err error) bool {
 
 	// Increment the attempt counter (used for testing purposes)
 	count++
+
 	return true
 }
 

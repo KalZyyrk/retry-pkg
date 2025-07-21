@@ -1,4 +1,4 @@
-package retries
+package retries_test
 
 import (
 	"context"
@@ -6,10 +6,12 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"retry-pkg/retries"
 )
 
 func TestRetry(t *testing.T) {
-	tt := []struct {
+	tests := []struct {
 		name          string
 		f             func() (any, error)
 		expectedRetry int
@@ -19,8 +21,9 @@ func TestRetry(t *testing.T) {
 			name: "functional error",
 			f: func() (any, error) {
 				res := http.Response{
-					StatusCode: 400,
+					StatusCode: http.StatusBadRequest,
 				}
+
 				return &res, nil
 			},
 			isError:       true,
@@ -29,33 +32,33 @@ func TestRetry(t *testing.T) {
 		{
 			name: "Network issue 3 retries",
 			f: func() (any, error) {
-				count = 0
+				count := 0
 				if count < 3 {
 					return &http.Response{
-						StatusCode: 200,
+						StatusCode: http.StatusOK,
 					}, nil
 				}
 				count++
-				return &http.Response{
-					StatusCode: 500,
-				}, nil
 
+				return &http.Response{
+					StatusCode: http.StatusInternalServerError,
+				}, nil
 			},
 		},
 	}
 
 	ctx := context.TODO()
 
-	for _, test := range tt {
+	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			res, err := Retry(ctx, test.f)
+			res, err := retries.Retry(ctx, test.f)
 
 			if test.isError {
-				assert.Equal(t, test.expectedRetry, GetCount())
-				assert.Error(t, err)
+				assert.Equal(t, test.expectedRetry, retries.GetCount())
+				require.Error(t, err)
 			} else {
-				assert.Equal(t, test.expectedRetry, GetCount())
-				assert.NoError(t, err)
+				assert.Equal(t, test.expectedRetry, retries.GetCount())
+				require.NoError(t, err)
 				assert.NotEmpty(t, res)
 			}
 		})
